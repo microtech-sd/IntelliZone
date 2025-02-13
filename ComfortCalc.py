@@ -1,58 +1,68 @@
 import streamlit as st
 import numpy as np
-import math
+import matplotlib.pyplot as plt
+from pythermalcomfort.models import pmv_ppd, adaptive_ashrae
+from pythermalcomfort.utilities import met_typical_tasks, clo_typical_ensembles
 
-def calculate_pmv_ppd(met, clo, t_a, t_r, v_a, rh):
-    """Calculates PMV and PPD based on Fanger's model."""
-    # Constants
-    M = met * 58.15  # Convert met to W/m²
-    W = 0  # External work (assumed negligible)
-    I_cl = clo * 0.155  # Convert clothing insulation to m²K/W
-    f_cl = 1.05 if I_cl < 0.078 else 1.05 + 0.645 * (I_cl - 0.078)
-    t_a_k = t_a + 273.15  # Convert to Kelvin
-    t_r_k = t_r + 273.15  # Convert to Kelvin
-    p_a = rh * 0.01 * 6.105 * math.exp(17.27 * t_a / (237.7 + t_a))  # Water vapor pressure (Pa)
-    
-    # Heat transfer coefficients
-    h_c = 12.1 * np.sqrt(v_a) if v_a > 0 else 3.0  # Convective heat transfer coefficient
-    t_cl = t_a + (35.5 - t_a) / (3.5 * (I_cl + 0.1))  # Clothing surface temp estimate
-    h_r = 4.0 * 5.67e-8 * f_cl * ((t_cl + t_r_k) ** 4 - (t_r_k ** 4)) / (t_cl - t_r_k)
-    h_c = max(h_c, 2.38 * abs(t_cl - t_a) ** 0.25)  # Update h_c based on temperature diff
-    
-    # PMV calculation
-    L = (M - W) - 3.96e-8 * f_cl * ((t_cl + t_r_k) ** 4 - (t_r_k ** 4)) - f_cl * h_c * (t_cl - t_a)
-    PMV = (0.303 * math.exp(-0.036 * M) + 0.028) * L
-    PPD = 100 - 95 * math.exp(-0.03353 * PMV ** 4 - 0.2179 * PMV ** 2)
-    
-    return round(PMV, 2), round(PPD, 2)
+# Streamlit App Configuration
+st.set_page_config(page_title="Thermal Comfort Analyzer", layout="wide")
+st.title("🌡️ Thermal Comfort Analyzer")
+st.markdown("Analyze and optimize indoor thermal comfort based on ASHRAE 55 standards.")
 
-# Streamlit UI
-st.title("Thermal Comfort Calculator")
-st.write("Calculate PMV (Predicted Mean Vote) and PPD (Predicted Percentage of Dissatisfied) based on environmental conditions.")
+# Sidebar Inputs
+st.sidebar.header("Environmental Conditions")
 
-# Sidebar inputs
-met = st.sidebar.slider("Metabolic Rate (met)", 0.8, 2.0, 1.2, 0.1)
-clo = st.sidebar.slider("Clothing Insulation (clo)", 0.0, 2.0, 0.5, 0.1)
-t_a = st.sidebar.slider("Air Temperature (°C)", 10.0, 40.0, 24.0, 0.1)
-t_r = st.sidebar.slider("Mean Radiant Temperature (°C)", 10.0, 40.0, 24.0, 0.1)
-v_a = st.sidebar.slider("Air Velocity (m/s)", 0.0, 1.0, 0.1, 0.01)
-rh = st.sidebar.slider("Relative Humidity (%)", 0, 100, 50, 1)
+temp_air = st.sidebar.slider("Air Temperature (°C)", 10.0, 40.0, 23.0)
+temp_mrt = st.sidebar.slider("Mean Radiant Temperature (°C)", 10.0, 40.0, 21.4)
+relative_humidity = st.sidebar.slider("Relative Humidity (%)", 10, 90, 50)
+air_velocity = st.sidebar.slider("Air Velocity (m/s)", 0.0, 1.5, 0.1)
 
-# Calculate PMV and PPD
-pmv, ppd = calculate_pmv_ppd(met, clo, t_a, t_r, v_a, rh)
+st.sidebar.header("Personal Factors")
+met = st.sidebar.selectbox("Metabolic Rate (MET)", list(met_typical_tasks.values()), index=2)
+clo = st.sidebar.selectbox("Clothing Insulation (CLO)", list(clo_typical_ensembles.values()), index=1)
 
-# Display results
-st.subheader("Results")
-st.write(f"**Predicted Mean Vote (PMV):** {pmv}")
-st.write(f"**Predicted Percentage of Dissatisfied (PPD):** {ppd}%")
+# Calculate PMV & PPD
+pmv_value, ppd_value = pmv_ppd(tdb=temp_air, tr=temp_mrt, vr=air_velocity, rh=relative_humidity, met=met, clo=clo, standard="ASHRAE")
 
-# Interpretation
-if abs(pmv) <= 0.5:
-    st.success("Thermal comfort is within an acceptable range.")
-elif abs(pmv) <= 1:
-    st.warning("Some discomfort may be present.")
-else:
-    st.error("Significant discomfort detected.")
+# Display Results
+st.subheader("🌡️ Predicted Mean Vote (PMV) and Predicted Percentage of Dissatisfied (PPD)")
+st.write(f"**PMV:** {pmv_value:.2f} (Ideal Range: -0.5 to +0.5)")
+st.write(f"**PPD:** {ppd_value:.1f}% (Should be <10% for optimal comfort)")
 
-# Visualization
-st.progress(min(int(ppd), 100))
+# Thermal Comfort Level Interpretation
+comfort_status = "✅ Comfortable" if -0.5 <= pmv_value <= 0.5 else "⚠️ Discomfort Detected"
+st.markdown(f"**Comfort Status:** {comfort_status}")
+
+# Adaptive Model (for naturally ventilated spaces)
+st.subheader("🌍 Adaptive Comfort Model (ASHRAE 55)")
+outdoor_temp = st.slider("Outdoor Temperature (°C)", 5.0, 40.0, 20.0)
+adaptive_result = adaptive_ashrae(tdb=temp_air, tr=temp_mrt, t_running_mean=outdoor_temp)
+
+st.write(f"**Acceptable Temperature Range:** {adaptive_result['acceptability']} ")
+
+# Visualization: PMV Scale
+fig, ax = plt.subplots(figsize=(7, 1))
+ax.barh(["PMV"], [pmv_value], color=("green" if -0.5 <= pmv_value <= 0.5 else "red"))
+ax.set_xlim([-3, 3])
+ax.axvline(x=-0.5, color='gray', linestyle='dashed')
+ax.axvline(x=0.5, color='gray', linestyle='dashed')
+ax.set_xlabel("Thermal Comfort Scale")
+st.pyplot(fig)
+
+# Recommendations
+st.subheader("🔍 Recommendations for Improved Comfort")
+recommendations = []
+if pmv_value > 0.5:
+    recommendations.append("❄️ Reduce air temperature or increase air movement.")
+if pmv_value < -0.5:
+    recommendations.append("🔥 Increase air temperature or wear warmer clothing.")
+if relative_humidity > 60:
+    recommendations.append("💨 Reduce humidity to avoid discomfort.")
+if air_velocity < 0.1:
+    recommendations.append("🌬️ Increase air velocity for better cooling.")
+
+for rec in recommendations:
+    st.markdown(f"- {rec}")
+
+st.markdown("---")
+st.write("**Built for IntelliZone: Smart Climate Control**")
