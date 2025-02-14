@@ -17,7 +17,7 @@ Data-Driven Decision Making – Using AI and statistical models to refine system
 
 🏗 How to Use
 1. Clone this repository:
-git clone https://github.com/YourUsername/IntelliZone.git
+git clone https://github.com/microtech-sd/IntelliZone.git
 cd IntelliZone
 
 
