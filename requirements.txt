@@ -1,3 +1,6 @@
 streamlit 
 pythermalcomfort
 matplotlib
+pandas
+numpy
+seaborn
